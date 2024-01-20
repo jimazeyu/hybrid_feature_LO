@@ -9,10 +9,6 @@ datasets
 ├── 2011_09_30
 │   ├── 2011_09_30_drive_0016_sync
 │   │   ├── 04.txt
-│   │   ├── image_00
-│   │   ├── image_01
-│   │   ├── image_02
-│   │   ├── image_03
 │   │   ├── oxts
 │   │   └── velodyne_points
 │   ├── 2011_09_30_drive_0018_sync
@@ -20,10 +16,6 @@ datasets
 .....
 │   ├── 2011_09_30_drive_0034_sync
 │   │   ├── 10.txt
-│   │   ├── image_00
-│   │   ├── image_01
-│   │   ├── image_02
-│   │   ├── image_03
 │   │   ├── oxts
 │   │   └── velodyne_points
 │   ├── calib_cam_to_cam.txt
@@ -32,14 +24,11 @@ datasets
 └── 2011_10_03
     ├── 2011_10_03_drive_0027_sync
     │   ├── 00.txt
-    │   ├── groundtruth.txt
-    │   ├── image_00
-    │   ├── image_01
-    │   ├── image_02
-    │   ├── image_03
     │   ├── oxts
     │   └── velodyne_points
 .....
 .....
+
+p.s. "00.txt...10.txt"means groundtruth
 ```
 </pre>
