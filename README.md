@@ -3,7 +3,6 @@ hybrid_feature_LO
 
 # datasets
 
-<pre>
 ```
 ./datasets
 ├── 2011_09_30
@@ -37,4 +36,3 @@ hybrid_feature_LO
 
 p.s. "00.txt...10.txt"means groundtruth
 ```
-</pre>

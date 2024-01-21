@@ -1,7 +1,6 @@
 # basic_operations
 
 <pre>
-```
 1.read_data.ipynb 
     pykitti读取数据集并可视化
 
@@ -21,5 +20,4 @@
 
 6.RangeNet++ Segment.ipynb
     点云放入rangenet进行分割
-```
 </pre>
