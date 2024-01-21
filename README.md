@@ -5,7 +5,7 @@ hybrid_feature_LO
 
 <pre>
 ```
-basic_operations/datasets
+./datasets
 ├── 2011_09_30
 │   ├── 2011_09_30_drive_0016_sync
 │   │   ├── 04.txt
