@@ -8,12 +8,12 @@ hybrid_feature_LO
 download and put in ./unit_operations/datasets
 
 ## Rangenet++
-
+### dataset
 - [SemanticKITTI](http://semantic-kitti.org)
 
 download and put in ./Rangenet++/train/tasks/semantic/dataset
 
-## Pre-trained Models
+### Pre-trained Models
 more details in Rangenet++/README.md
 
 download and put in ./Rangenet++/train/tasks/semantic/pre_trained_model
