@@ -117,22 +117,23 @@ class User():
             proj_range = proj_range.cuda()
             unproj_range = unproj_range.cuda()
 
+        #此处修改，不需要计算proj_argmax，proj_output直接包含一个可信度分数的张量
         # compute output
         proj_output = self.model(proj_in, proj_mask)
         #proj_argmax = proj_output[0].argmax(dim=0)
-        proj_max_vals, proj_argmax = proj_output[0].max(dim=0)
+        
 
 
-        if self.post:
-          # knn postproc
-          unproj_argmax = self.post(proj_range,
-                                    unproj_range,
-                                    proj_argmax,
-                                    p_x,
-                                    p_y)
-        else:
-          # put in original pointcloud using indexes
-          unproj_argmax = proj_argmax[p_y, p_x]
+        # if self.post:
+        #   # knn postproc
+        #   unproj_argmax = self.post(proj_range,
+        #                             unproj_range,
+        #                             proj_argmax,
+        #                             p_x,
+        #                             p_y)
+        # else:
+        #   # put in original pointcloud using indexes
+        #   unproj_argmax = proj_argmax[p_y, p_x]
 
         # measure elapsed time
         if torch.cuda.is_available():
@@ -142,9 +143,11 @@ class User():
               "in", time.time() - end, "sec")
         end = time.time()
 
+
+        #此处修改，只需要保存置信度proj_output
         # save scan
         # get the first scan in batch and project scan
-        pred_np = unproj_argmax.cpu().numpy()
+        pred_np = proj_output.cpu().numpy()
         pred_np = pred_np.reshape((-1)).astype(np.int32)
 
         # map to original label
@@ -155,23 +158,3 @@ class User():
                             path_seq, "predictions", path_name)
         pred_np.tofile(path)
 
-        # 假设 proj_argmax 是包含预测标签的 range image
-        # 转换为 NumPy 数组
-        pred_np2 = proj_argmax.cpu().numpy()
-
-        # 如果需要，将标签映射回原始标签
-        pred_np2 = to_orig_fn(pred_np2)
-
-        # 保存处理后的 range image
-        rangeimage_path_name = "proj_" + path_name  # 添加前缀
-        path2 = os.path.join(self.logdir, "sequences", path_seq, "predictions", rangeimage_path_name)
-        pred_np2.tofile(path2)
-
-        # 假设 proj_max_vals 是每个点确定属于某类别的概率权重
-        # 转换为 NumPy 数组
-        pred_np3 = proj_max_vals.cpu().numpy()
-
-        # 保存处理后的 range image
-        val_path_name = "max_vals" + path_name  # 添加前缀
-        path3 = os.path.join(self.logdir, "sequences", path_seq, "predictions", val_path_name)
-        pred_np3.tofile(path3)

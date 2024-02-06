@@ -18,8 +18,6 @@ class Segmentator(nn.Module):
     self.path_append = path_append
     self.strict = False
 
-    print("Number of classes (nclasses):", self.nclasses)
-
     # get the model
     bboneModule = imp.load_source("bboneModule",
                                   booger.TRAIN_PATH + '/backbones/' +
@@ -44,11 +42,12 @@ class Segmentator(nn.Module):
                                          stub_skips=stub_skips,
                                          OS=self.ARCH["backbone"]["OS"],
                                          feature_depth=self.backbone.get_last_depth())
-
-    self.head = nn.Sequential(nn.Dropout2d(p=ARCH["head"]["dropout"]),
-                              nn.Conv2d(self.decoder.get_last_depth(),
-                                        self.nclasses, kernel_size=3,
-                                        stride=1, padding=1))
+    # 此处有修改，head修改输出为单通道
+    self.head = nn.Sequential(
+      nn.Dropout2d(p=ARCH["head"]["dropout"]),
+      nn.Conv2d(self.decoder.get_last_depth(),
+                1,
+                kernel_size=3, stride=1, padding=1))
 
     if self.ARCH["post"]["CRF"]["use"]:
       self.CRF = CRF(self.ARCH["post"]["CRF"]["params"], self.nclasses)
@@ -151,7 +150,8 @@ class Segmentator(nn.Module):
     y, skips = self.backbone(x)
     y = self.decoder(y, skips)
     y = self.head(y)
-    y = F.softmax(y, dim=1)
+    #此处修改，移除softmax，直接返回原始值
+    #y = F.softmax(y, dim=1)
     #print("Logits shape:", y.shape)  # 添加这行来输出 logits 的形状
     if self.CRF:
       assert(mask is not None)
