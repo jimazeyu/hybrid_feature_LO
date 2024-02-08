@@ -34,7 +34,9 @@ class Trainer():
     self.datadir = datadir
     self.log = logdir
     self.path = path
-
+    self.checkpoint_dir = os.path.join(os.path.dirname(self.log), "checkpoint")
+    if not os.path.exists(self.checkpoint_dir):
+            os.makedirs(self.checkpoint_dir, exist_ok=True)
 
     # 先初始化设备
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -177,6 +179,7 @@ class Trainer():
                               warmup_steps=up_steps,
                               momentum=self.ARCH["train"]["momentum"],
                               decay=final_decay)
+    
 
   @staticmethod
   def get_mpl_colormap(cmap_name):
@@ -227,11 +230,42 @@ class Trainer():
         name = os.path.join(directory, str(i) + ".png")
         cv2.imwrite(name, img)
 
+  
+  def load_checkpoint(self, filename="checkpoint.pth.tar"):
+    start_epoch = 0
+    best_val_mse = float('inf')
+
+    checkpoint_path = os.path.abspath(os.path.join(self.checkpoint_dir, filename))
+    print(checkpoint_path)
+
+    # os.chmod(checkpoint_path, 0o644)
+
+    if os.access(checkpoint_path, os.R_OK):
+        print(f"File '{checkpoint_path}' has the required permissions.")
+    else:
+        print(f"File '{checkpoint_path}' does not have the required permissions.")
+
+    if os.path.isfile(checkpoint_path):
+        print("=> loading checkpoint '{}'".format(filename))
+        checkpoint = torch.load(checkpoint_path)
+        start_epoch = checkpoint['epoch']
+        best_val_mse = checkpoint['best_val_mse']
+        self.model.load_state_dict(checkpoint['state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer'])
+        print("=> loaded checkpoint '{}' (epoch {})"
+              .format(filename, checkpoint['epoch']))
+    else:
+        print("=> no checkpoint found at '{}'".format(filename))
+
+    return start_epoch, best_val_mse
+
+
 
   def save_checkpoint(self, state, is_best, filename="checkpoint.pth.tar"):
-    torch.save(state, os.path.join(self.log, filename))
+    torch.save(state, os.path.join(self.checkpoint_dir, filename))
     if is_best:
-        shutil.copyfile(os.path.join(self.log, filename), os.path.join(self.log, 'model_best.pth.tar'))
+        shutil.copyfile(os.path.join(self.checkpoint_dir, filename), os.path.join(self.checkpoint_dir, 'model_best.pth.tar'))
+
 
 
   def train(self):
@@ -249,12 +283,15 @@ class Trainer():
     # self.evaluator = iouEval(self.parser.get_n_classes(),
     #                          self.device, self.ignore_class)
 
+    # 从checkpoint开始
+    self.start_epoch, self.best_val_mse = self.load_checkpoint()
+
     #初始化 MSE
     self.mse_evaluator
     best_train_mse = float('inf')
 
     # train for n epochs
-    for epoch in range(self.ARCH["train"]["max_epochs"]):
+    for epoch in range(self.start_epoch, self.ARCH["train"]["max_epochs"]):
       # get info for learn rate currently
       groups = self.optimizer.param_groups
       for name, g in zip(self.lr_group_names, groups):
@@ -290,7 +327,7 @@ class Trainer():
         best_train_mse = train_mse
         self.model_single.save_checkpoint(self.log, suffix="_train_mse")
       
-      
+
 
       if epoch % self.ARCH["train"]["report_epoch"] == 0:
         # evaluate on validation set
@@ -332,6 +369,19 @@ class Trainer():
                             model=self.model_single,
                             img_summary=self.ARCH["train"]["save_scans"],
                             imgs=rand_img)
+
+      # 在train方法的适当位置
+      is_best = val_mse < self.best_val_mse
+      if is_best:
+          self.best_val_mse = val_mse
+
+      self.save_checkpoint({
+          'epoch': epoch + 1,
+          'state_dict': self.model.state_dict(),
+          'best_val_mse': self.best_val_mse,
+          'optimizer' : self.optimizer.state_dict(),
+      }, is_best=is_best)
+
 
     print('Finished Training')
 
