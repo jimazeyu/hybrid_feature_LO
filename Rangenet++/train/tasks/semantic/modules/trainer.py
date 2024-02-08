@@ -38,6 +38,9 @@ class Trainer():
     if not os.path.exists(self.checkpoint_dir):
             os.makedirs(self.checkpoint_dir, exist_ok=True)
 
+    self.train_mse_history = []  # 存储训练集MSE
+    self.val_mse_history = []    # 存储验证集MSE    
+
     # 先初始化设备
     self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Training in device: ", self.device)
@@ -232,39 +235,49 @@ class Trainer():
 
   
   def load_checkpoint(self, filename="checkpoint.pth.tar"):
-    start_epoch = 0
-    best_val_mse = float('inf')
+      start_epoch = 0
+      best_train_mse = float('inf')  
+      best_val_mse = float('inf')
+      checkpoint_path = os.path.join(self.checkpoint_dir, filename)
+      
+      if os.path.isfile(checkpoint_path):
+          print(f"=> Loading checkpoint '{filename}'")
+          checkpoint = torch.load(checkpoint_path)
+          start_epoch = checkpoint['epoch']
+          best_train_mse = checkpoint.get('best_train_mse', float('inf'))
+          best_val_mse = checkpoint.get('best_val_mse', float('inf'))
+          
+          # 加载历史数据
+          self.train_mse_history = checkpoint.get('train_mse_history', [])
+          self.val_mse_history = checkpoint.get('val_mse_history', [])
+          
+          # 加载模型和优化器状态
+          if 'model_state_dict' in checkpoint:
+              self.model.load_state_dict(checkpoint['model_state_dict'])
+          if 'optimizer_state_dict' in checkpoint:
+              self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+          
+          print(f"=> Loaded checkpoint '{filename}' (epoch {checkpoint['epoch']})")
+      else:
+          print(f"=> No checkpoint found at '{filename}'")
+      
+      # 返回加载的状态，现在包括最佳训练MSE
+      return start_epoch, best_train_mse, best_val_mse
 
-    checkpoint_path = os.path.abspath(os.path.join(self.checkpoint_dir, filename))
-    print(checkpoint_path)
-
-    # os.chmod(checkpoint_path, 0o644)
-
-    if os.access(checkpoint_path, os.R_OK):
-        print(f"File '{checkpoint_path}' has the required permissions.")
-    else:
-        print(f"File '{checkpoint_path}' does not have the required permissions.")
-
-    if os.path.isfile(checkpoint_path):
-        print("=> loading checkpoint '{}'".format(filename))
-        checkpoint = torch.load(checkpoint_path)
-        start_epoch = checkpoint['epoch']
-        best_val_mse = checkpoint['best_val_mse']
-        self.model.load_state_dict(checkpoint['state_dict'])
-        self.optimizer.load_state_dict(checkpoint['optimizer'])
-        print("=> loaded checkpoint '{}' (epoch {})"
-              .format(filename, checkpoint['epoch']))
-    else:
-        print("=> no checkpoint found at '{}'".format(filename))
-
-    return start_epoch, best_val_mse
 
 
 
-  def save_checkpoint(self, state, is_best, filename="checkpoint.pth.tar"):
-    torch.save(state, os.path.join(self.checkpoint_dir, filename))
-    if is_best:
-        shutil.copyfile(os.path.join(self.checkpoint_dir, filename), os.path.join(self.checkpoint_dir, 'model_best.pth.tar'))
+  def save_checkpoint(self, state, filename="checkpoint.pth.tar", is_best=False):
+      # 保存checkpoint到指定目录
+      torch.save(state, os.path.join(self.checkpoint_dir, filename))
+      
+      # 如果这是到目前为止最好的模型，额外保存一份
+      if is_best:
+          shutil.copyfile(os.path.join(self.checkpoint_dir, filename),
+                          os.path.join(self.checkpoint_dir, 'model_best.pth.tar'))
+
+
+    
 
 
 
@@ -284,11 +297,10 @@ class Trainer():
     #                          self.device, self.ignore_class)
 
     # 从checkpoint开始
-    self.start_epoch, self.best_val_mse = self.load_checkpoint()
+    self.start_epoch, self.best_train_mse, self.best_val_mse = self.load_checkpoint()
 
     #初始化 MSE
     self.mse_evaluator
-    best_train_mse = float('inf')
 
     # train for n epochs
     for epoch in range(self.start_epoch, self.ARCH["train"]["max_epochs"]):
@@ -316,17 +328,11 @@ class Trainer():
       # 获取并打印 MSE
       train_mse = self.mse_evaluator.getMSE()
       print(f"Epoch: {epoch}, Train MSE: {train_mse}")
-
+      self.train_mse_history.append(train_mse) 
+      
       # update info                                         
       self.info["train_loss"] = loss
       self.info["train_mse"] = train_mse
-
-      # remember best iou and save checkpoint
-      if train_mse < best_train_mse:
-        print("Best mean MSE in training set so far, save model!")
-        best_train_mse = train_mse
-        self.model_single.save_checkpoint(self.log, suffix="_train_mse")
-      
 
 
       if epoch % self.ARCH["train"]["report_epoch"] == 0:
@@ -342,21 +348,9 @@ class Trainer():
         self.info["valid_loss"] = loss
         self.info["valid_mse"] = val_mse
 
-        # # remember best iou and save checkpoint
-        # if iou > best_val_iou:
-        #   print("Best mean iou in validation so far, save model!")
-        #   print("*" * 80)
-        #   best_val_iou = iou
+        
+        self.val_mse_history.append(val_mse)  
 
-        #   # save the weights!
-        #   self.model_single.save_checkpoint(self.log, suffix="")
-
-        if val_mse < best_train_mse:
-          print("Best mean MSE in validation so far, save model!")
-          best_train_mse = val_mse
-
-          # save the weights!
-          self.model_single.save_checkpoint(self.log, suffix="_best_mse")
 
         print("*" * 80)
 
@@ -369,19 +363,43 @@ class Trainer():
                             model=self.model_single,
                             img_summary=self.ARCH["train"]["save_scans"],
                             imgs=rand_img)
-
-      # 在train方法的适当位置
-      is_best = val_mse < self.best_val_mse
-      if is_best:
-          self.best_val_mse = val_mse
-
-      self.save_checkpoint({
+        
+      current_state = {
           'epoch': epoch + 1,
-          'state_dict': self.model.state_dict(),
+          'model_state_dict': self.model.state_dict(),
+          'optimizer_state_dict': self.optimizer.state_dict(),
+          'best_train_mse': self.best_train_mse,
           'best_val_mse': self.best_val_mse,
-          'optimizer' : self.optimizer.state_dict(),
-      }, is_best=is_best)
+          'train_mse_history': self.train_mse_history,
+          'val_mse_history': self.val_mse_history,
+      }
 
+      # 检查当前模型是否为“最佳”模型，并保存
+      is_best = False
+      if train_mse < self.best_train_mse or val_mse < self.best_val_mse:
+          is_best = True
+          print("Best model so far, saving...")
+          if train_mse < self.best_train_mse:
+              self.best_train_mse = train_mse
+          if val_mse < self.best_val_mse:
+              self.best_val_mse = val_mse
+
+      # 调用save_checkpoint来保存当前状态
+      self.save_checkpoint(current_state, filename="checkpoint.pth.tar", is_best=is_best)
+
+    epochs = range(1, len(self.train_mse_history) + 1)
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, self.train_mse_history, label='Training MSE')
+    plt.plot(epochs, self.val_mse_history, label='Validation MSE')
+    plt.title('Training and Validation MSE')
+    plt.xlabel('Epochs')
+    plt.ylabel('MSE')
+    plt.legend()
+
+    # 先保存图像，然后再显示图形
+    plt.savefig(os.path.join(self.checkpoint_dir, 'MSE_curve.png'))
+    plt.show()
+    plt.close()
 
     print('Finished Training')
 

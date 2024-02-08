@@ -234,6 +234,8 @@ class Parser():
 
     # if I am training, get the dataset
     self.root = root
+    #改小范围用于测试
+    train_sequences = ['00','01']
     self.train_sequences = train_sequences
     self.valid_sequences = valid_sequences
     self.test_sequences = test_sequences
