@@ -3,7 +3,7 @@ hybrid_feature_LO
 
 ## unit_operations
 
-- [datasets](https://yunpan.tongji.edu.cn/link/AAABC09F5A03104CF6A3C360DE77FD9B7A)
+- [kitti_datasets](https://yunpan.tongji.edu.cn/link/AAABC09F5A03104CF6A3C360DE77FD9B7A)
 
 download and put in ./unit_operations/datasets
 
@@ -27,6 +27,7 @@ cd Rangenet++/train/tasks/semantic
 ```
 
 if use pre-trained model
+
 e.x.
 ```
 ./train.py -d ./dataset -ac ./config/arch/darknet21.yaml -l ./log -p ./pre_trained_model/darknet21
