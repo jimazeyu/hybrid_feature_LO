@@ -11,9 +11,20 @@ download and put in ./unit_operations/datasets
 ### dataset
 - [SemanticKITTI](http://semantic-kitti.org)
 
-download and put in ./Rangenet++/train/tasks/semantic/dataset
+download KITTI Odemetry Benchmark Velodyne point clouds (80 GB) & SemanticKITTI label data (179MB)
+
+put in ./Rangenet++/train/tasks/semantic/dataset
 
 ### Pre-trained Models
 more details in Rangenet++/README.md
 
 download and put in ./Rangenet++/train/tasks/semantic/pre_trained_model
+
+### Order
+```
+cd Rangenet++/train/tasks/semantic
+./train.py -d ./dataset -ac ./config/arch/darknet21.yaml -l ./log 
+# if use pre-trained model
+# e.x.
+./train.py -d ./dataset -ac ./config/arch/darknet21.yaml -l ./log -p ./pre_trained_model/darknet21
+```
