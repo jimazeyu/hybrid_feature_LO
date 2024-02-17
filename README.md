@@ -30,5 +30,5 @@ if use pre-trained model
 
 e.x.
 ```
-./train.py -d ./dataset -ac ./config/arch/darknet21.yaml -l ./log -p ./pre_trained_model/darknet21
+./train.py -d ./dataset -ac ./config/arch/darknet21.yaml -l ./log -m ./pre_trained_model/darknet21
 ```
