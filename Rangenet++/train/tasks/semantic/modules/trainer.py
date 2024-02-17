@@ -17,14 +17,15 @@ import cv2
 import os
 import numpy as np
 from matplotlib import pyplot as plt
-import shutil
 
 from common.logger import Logger
 from common.avgmeter import *
 from common.sync_batchnorm.batchnorm import convert_model
 from common.warmupLR import *
 from tasks.semantic.modules.segmentator import *
+from tasks.semantic.modules.ioueval import *
 from tasks.semantic.modules.mseEval import *
+
 
 class Trainer():
   def __init__(self, ARCH, DATA, datadir, logdir, path=None):
@@ -34,25 +35,18 @@ class Trainer():
     self.datadir = datadir
     self.log = logdir
     self.path = path
-    self.checkpoint_dir = os.path.join(os.path.dirname(self.log), "checkpoint")
-    if not os.path.exists(self.checkpoint_dir):
-            os.makedirs(self.checkpoint_dir, exist_ok=True)
-
     self.train_mse_history = []  # 存储训练集MSE
-    self.val_mse_history = []    # 存储验证集MSE    
-
-    # 先初始化设备
-    self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("Training in device: ", self.device)
-
+    self.val_mse_history = []    # 存储验证集MSE 
 
     # put logger where it belongs
     self.tb_logger = Logger(self.log + "/tb")
     self.info = {"train_update": 0,
                  "train_loss": 0,
-                 "train_mse": 0,
+                 "train_acc": 0,
+                 "train_iou": 0,
                  "valid_loss": 0,
-                 "valid_mse": 0,
+                 "valid_acc": 0,
+                 "valid_iou": 0,
                  "backbone_lr": 0,
                  "decoder_lr": 0,
                  "head_lr": 0,
@@ -75,16 +69,8 @@ class Trainer():
                                       workers=self.ARCH["train"]["workers"],
                                       gt=True,
                                       shuffle_train=True)
-    
-    # 初始化模型
-    with torch.no_grad():
-        self.model = Segmentator(self.ARCH,
-                                self.parser.get_n_classes(),
-                                self.path).to(self.device)
-        
-        
-    
 
+    # # weights for loss (and bias)
     # # weights for loss (and bias)
     # epsilon_w = self.ARCH["train"]["epsilon_w"]
     # content = torch.zeros(self.parser.get_n_classes(), dtype=torch.float)
@@ -98,15 +84,11 @@ class Trainer():
     #     self.loss_w[x_cl] = 0
     # print("Loss weights from content: ", self.loss_w.data)
 
-    # # concatenate the encoder and the head
-    # with torch.no_grad():
-    #   self.model = Segmentator(self.ARCH,
-    #                            self.parser.get_n_classes(),
-    #                            self.path)
-
-
-
-
+    # concatenate the encoder and the head
+    with torch.no_grad():
+      self.model = Segmentator(self.ARCH,
+                               self.parser.get_n_classes(),
+                               self.path)
 
     # GPU?
     self.gpu = False
@@ -129,22 +111,14 @@ class Trainer():
       self.multi_gpu = True
       self.n_gpus = torch.cuda.device_count()
 
-
-    # 初始化 MSE 计算器
-    self.mse_evaluator = mseEval(self.device) 
-
-
-
-    #此处修改，分类的损失函数修改为回归的损失函数
     # loss
     if "loss" in self.ARCH["train"].keys() and self.ARCH["train"]["loss"] == "xentropy":
-      #self.criterion = nn.NLLLoss(weight=self.loss_w).to(self.device)
+      # self.criterion = nn.NLLLoss(weight=self.loss_w).to(self.device)
       self.criterion = nn.MSELoss().to(self.device)
     else:
       raise Exception('Loss not defined in config file')
     # loss as dataparallel too (more images in batch)
     if self.n_gpus > 1:
-      #self.criterion = nn.DataParallel(self.criterion).cuda()  # spread in gpus
       self.criterion = nn.DataParallel(self.criterion).cuda()  # spread in gpus
 
     # optimizer
@@ -182,7 +156,6 @@ class Trainer():
                               warmup_steps=up_steps,
                               momentum=self.ARCH["train"]["momentum"],
                               decay=final_decay)
-    
 
   @staticmethod
   def get_mpl_colormap(cmap_name):
@@ -233,60 +206,10 @@ class Trainer():
         name = os.path.join(directory, str(i) + ".png")
         cv2.imwrite(name, img)
 
-  
-  def load_checkpoint(self, filename="checkpoint.pth.tar"):
-      start_epoch = 0
-      best_train_mse = float('inf')  
-      best_val_mse = float('inf')
-      checkpoint_path = os.path.join(self.checkpoint_dir, filename)
-      
-      if os.path.isfile(checkpoint_path):
-          print(f"=> Loading checkpoint '{filename}'")
-          checkpoint = torch.load(checkpoint_path)
-          start_epoch = checkpoint['epoch']
-          best_train_mse = checkpoint.get('best_train_mse', float('inf'))
-          best_val_mse = checkpoint.get('best_val_mse', float('inf'))
-          
-          # 加载历史数据
-          self.train_mse_history = checkpoint.get('train_mse_history', [])
-          self.val_mse_history = checkpoint.get('val_mse_history', [])
-          
-          # 加载模型和优化器状态
-          if 'model_state_dict' in checkpoint:
-              self.model.load_state_dict(checkpoint['model_state_dict'])
-          if 'optimizer_state_dict' in checkpoint:
-              self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-          
-          print(f"=> Loaded checkpoint '{filename}' (epoch {checkpoint['epoch']})")
-      else:
-          print(f"=> No checkpoint found at '{filename}'")
-      
-      # 返回加载的状态，现在包括最佳训练MSE
-      return start_epoch, best_train_mse, best_val_mse
-
-
-
-
-  def save_checkpoint(self, state, filename="checkpoint.pth.tar", is_best=False):
-      # 保存checkpoint到指定目录
-      torch.save(state, os.path.join(self.checkpoint_dir, filename))
-      
-      # 如果这是到目前为止最好的模型，额外保存一份
-      if is_best:
-          shutil.copyfile(os.path.join(self.checkpoint_dir, filename),
-                          os.path.join(self.checkpoint_dir, 'model_best.pth.tar'))
-
-
-    
-
-
-
   def train(self):
     # accuracy and IoU stuff
     # best_train_iou = 0.0
     # best_val_iou = 0.0
-
-    #此处修改，不需要原有的评估指标，改为 MSE（暂时待定）
 
     # self.ignore_class = []
     # for i, w in enumerate(self.loss_w):
@@ -296,21 +219,15 @@ class Trainer():
     # self.evaluator = iouEval(self.parser.get_n_classes(),
     #                          self.device, self.ignore_class)
 
-    # 从checkpoint开始
-    self.start_epoch, self.best_train_mse, self.best_val_mse = self.load_checkpoint()
-
-    #初始化 MSE
-    self.mse_evaluator
+    # 初始化 MSE 计算器
+    self.evaluator = mseEval(self.device) 
 
     # train for n epochs
-    for epoch in range(self.start_epoch, self.ARCH["train"]["max_epochs"]):
+    for epoch in range(self.ARCH["train"]["max_epochs"]):
       # get info for learn rate currently
       groups = self.optimizer.param_groups
       for name, g in zip(self.lr_group_names, groups):
         self.info[name] = g['lr']
-
-      #重置 MSE 
-      self.mse_evaluator.reset()
 
       # train for 1 epoch
       loss, update_mean = self.train_epoch(train_loader=self.parser.get_train_set(),
@@ -318,22 +235,21 @@ class Trainer():
                           criterion=self.criterion,
                           optimizer=self.optimizer,
                           epoch=epoch,
-                          mse_evaluator=self.mse_evaluator,
+                          evaluator=self.evaluator,
                           scheduler=self.scheduler,
                           color_fn=self.parser.to_color,
                           report=self.ARCH["train"]["report_batch"],
                           show_scans=self.ARCH["train"]["show_scans"])
 
 
-      # 获取并打印 MSE
-      train_mse = self.mse_evaluator.getMSE()
+       # 获取并打印 MSE
+      train_mse = self.evaluator.getMSE()
       print(f"Epoch: {epoch}, Train MSE: {train_mse}")
       self.train_mse_history.append(train_mse) 
-      
-      # update info                                         
-      self.info["train_loss"] = loss
-      self.info["train_mse"] = train_mse
 
+      # update info
+      self.info["train_update"] = update_mean
+      self.info["train_loss"] = loss
 
       if epoch % self.ARCH["train"]["report_epoch"] == 0:
         # evaluate on validation set
@@ -341,16 +257,14 @@ class Trainer():
         loss, val_mse, rand_img = self.validate(val_loader=self.parser.get_valid_set(),
                                                  model=self.model,
                                                  criterion=self.criterion,
+                                                 evaluator=self.evaluator,
                                                  color_fn=self.parser.to_color,
                                                  save_scans=self.ARCH["train"]["save_scans"])
 
         # update info
         self.info["valid_loss"] = loss
         self.info["valid_mse"] = val_mse
-
-        
         self.val_mse_history.append(val_mse)  
-
 
         print("*" * 80)
 
@@ -363,29 +277,6 @@ class Trainer():
                             model=self.model_single,
                             img_summary=self.ARCH["train"]["save_scans"],
                             imgs=rand_img)
-        
-      current_state = {
-          'epoch': epoch + 1,
-          'model_state_dict': self.model.state_dict(),
-          'optimizer_state_dict': self.optimizer.state_dict(),
-          'best_train_mse': self.best_train_mse,
-          'best_val_mse': self.best_val_mse,
-          'train_mse_history': self.train_mse_history,
-          'val_mse_history': self.val_mse_history,
-      }
-
-      # 检查当前模型是否为“最佳”模型，并保存
-      is_best = False
-      if train_mse < self.best_train_mse or val_mse < self.best_val_mse:
-          is_best = True
-          print("Best model so far, saving...")
-          if train_mse < self.best_train_mse:
-              self.best_train_mse = train_mse
-          if val_mse < self.best_val_mse:
-              self.best_val_mse = val_mse
-
-      # 调用save_checkpoint来保存当前状态
-      self.save_checkpoint(current_state, filename="checkpoint.pth.tar", is_best=is_best)
 
     epochs = range(1, len(self.train_mse_history) + 1)
     plt.figure(figsize=(10, 6))
@@ -397,20 +288,21 @@ class Trainer():
     plt.legend()
 
     # 先保存图像，然后再显示图形
-    plt.savefig(os.path.join(self.checkpoint_dir, 'MSE_curve.png'))
+    plt.savefig(os.path.join(self.log, 'MSE_curve.png'))
     plt.show()
     plt.close()
-
+    
+    
     print('Finished Training')
 
     return
 
-  def train_epoch(self, train_loader, model, criterion, optimizer, epoch, mse_evaluator, scheduler, color_fn, report=10, show_scans=False):
+  def train_epoch(self, train_loader, model, criterion, optimizer, epoch, evaluator, scheduler, color_fn, report=10, show_scans=False):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
-    #acc = AverageMeter()
-    #iou = AverageMeter()
+    # acc = AverageMeter()
+    # iou = AverageMeter()
     update_ratio_meter = AverageMeter()
 
     # empty the cache to train now
@@ -430,8 +322,6 @@ class Trainer():
       if self.gpu:
         proj_labels = proj_labels.cuda(non_blocking=True).long()
 
-
-      #此处修改为适应于回归任务的loss
       # compute output
       output = model(in_vol, proj_mask)
       proj_labels = proj_labels.unsqueeze(1).float()  # 增加一个维度以匹配通道数
@@ -447,13 +337,14 @@ class Trainer():
       optimizer.step()
 
       # measure accuracy and record loss
-      
+      evaluator.reset()
       losses.update(loss.item(), in_vol.size(0))
-      self.mse_evaluator.addBatch(output, proj_labels)
+      evaluator.addBatch(output, proj_labels)
       # 在一个 epoch 结束后或在需要计算当前 MSE 的时候
-      train_mse = self.mse_evaluator.getMSE()
+      train_mse = evaluator.getMSE()
 
-      #loss = loss.mean()
+      # # measure accuracy and record loss
+      # loss = loss.mean()
       # with torch.no_grad():
       #   evaluator.reset()
       #   argmax = output.argmax(dim=1)
@@ -495,34 +386,31 @@ class Trainer():
         cv2.imshow("sample_training", out)
         cv2.waitKey(1)
 
-
-      # 此处修改，移除了准确率和IoU代码，增加mse_meter
       if i % self.ARCH["train"]["report_batch"] == 0:
         print('Lr: {lr:.3e} | '
               'Update: {umean:.3e} mean,{ustd:.3e} std | '
               'Epoch: [{0}][{1}/{2}] | '
               'Time {batch_time.val:.3f} ({batch_time.avg:.3f}) | '
               'Data {data_time.val:.3f} ({data_time.avg:.3f}) | '
-              'Loss {loss.val:.4f} ({loss.avg:.4f}) | '
-              'MSE {train_mse:.4f}'.format(
-              epoch, i, len(train_loader), batch_time=batch_time,
-              data_time=data_time, loss=losses, lr=lr,
-              umean=update_mean, ustd=update_std,
-              train_mse=train_mse))
+              'Loss {loss.val:.4f} ({loss.avg:.4f}) | '.format(
+                  epoch, i, len(train_loader), batch_time=batch_time,
+                  data_time=data_time, loss=losses, lr=lr,
+                  umean=update_mean, ustd=update_std,
+                  train_mse=train_mse))
 
       # step scheduler
       scheduler.step()
 
     return losses.avg, update_ratio_meter.avg
 
-  def validate(self, val_loader, model, criterion, color_fn, save_scans):
+  def validate(self, val_loader, model, criterion, evaluator, color_fn, save_scans):
     batch_time = AverageMeter()
     losses = AverageMeter()
     rand_imgs = []
 
     # switch to evaluate mode
     model.eval()
-    self.mse_evaluator.reset()
+    evaluator.reset()
 
     # empty the cache to infer in high res
     if self.gpu:
@@ -537,8 +425,6 @@ class Trainer():
         if self.gpu:
           proj_labels = proj_labels.cuda(non_blocking=True).long()
 
-
-        #此处修改为回归函数的计算方式
         # compute output
         output = model(in_vol, proj_mask)
         proj_labels = proj_labels.unsqueeze(1).float()  # 增加一个维度以匹配通道数
@@ -547,8 +433,8 @@ class Trainer():
         # measure accuracy and record loss
         # argmax = output.argmax(dim=1)
         # evaluator.addBatch(argmax, proj_labels)
-        losses.update(loss.item(), in_vol.size(0))
-        self.mse_evaluator.addBatch(output, proj_labels)
+        losses.update(loss.mean().item(), in_vol.size(0))
+        evaluator.addBatch(output, proj_labels)
 
         if save_scans:
           # get the first scan in batch and project points
@@ -565,7 +451,12 @@ class Trainer():
         batch_time.update(time.time() - end)
         end = time.time()
 
-      val_mse = self.mse_evaluator.getMSE()
+      # accuracy = evaluator.getacc()
+      # jaccard, class_jaccard = evaluator.getIoU()
+      # acc.update(accuracy.item(), in_vol.size(0))
+      # iou.update(jaccard.item(), in_vol.size(0))
+
+      val_mse = evaluator.getMSE()
 
       print('Validation set:\n'
             'Time avg per batch {batch_time.avg:.3f}\n'
@@ -574,5 +465,5 @@ class Trainer():
                                       loss=losses,
                                       val_mse=val_mse))
 
-    # 返回损失平均值和 MSE
+
     return losses.avg, val_mse, rand_imgs
