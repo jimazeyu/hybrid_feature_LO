@@ -24,7 +24,10 @@ download and put in ./Rangenet++/train/tasks/semantic/pre_trained_model
 ```
 cd Rangenet++/train/tasks/semantic
 ./train.py -d ./dataset -ac ./config/arch/darknet21.yaml -l ./log 
-# if use pre-trained model
-# e.x.
+```
+
+if use pre-trained model
+e.x.
+```
 ./train.py -d ./dataset -ac ./config/arch/darknet21.yaml -l ./log -p ./pre_trained_model/darknet21
 ```
