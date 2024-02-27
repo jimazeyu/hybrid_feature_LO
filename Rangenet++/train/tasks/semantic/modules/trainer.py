@@ -275,8 +275,9 @@ class Trainer():
                             epoch=epoch,
                             w_summary=self.ARCH["train"]["save_summary"],
                             model=self.model_single,
-                            img_summary=self.ARCH["train"]["save_scans"],
-                            imgs=rand_img)
+                            # img_summary=self.ARCH["train"]["save_scans"],
+                            # imgs=rand_img
+                            )
 
     epochs = range(1, len(self.train_mse_history) + 1)
     plt.figure(figsize=(10, 6))

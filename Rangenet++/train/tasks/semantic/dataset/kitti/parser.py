@@ -68,6 +68,8 @@ class SemanticKitti(Dataset):
     # make sure learning_map is a dict
     assert(isinstance(self.learning_map, dict))
 
+    self.sequences = ['00','01','02','04','05','06','07','09','10']
+
     # make sure sequences is a list
     assert(isinstance(self.sequences, list))
 
@@ -88,9 +90,9 @@ class SemanticKitti(Dataset):
 
       # get files
       scan_files = [os.path.join(dp, f) for dp, dn, fn in os.walk(
-          os.path.expanduser(scan_path)) for f in fn if is_scan(f)]
+          os.path.expanduser(scan_path)) for f in fn if is_scan(f) and f != "000000.bin"]
       label_files = [os.path.join(dp, f) for dp, dn, fn in os.walk(
-          os.path.expanduser(label_path)) for f in fn if is_label(f)]
+          os.path.expanduser(label_path)) for f in fn if is_label(f) and f != "000000.label"]
 
       # check all scans have labels
       if self.gt:
@@ -133,8 +135,11 @@ class SemanticKitti(Dataset):
     if self.gt:
       scan.open_label(label_file)
       # map unused classes to used classes (also for projection)
-      scan.sem_label = self.map(scan.sem_label, self.learning_map)
-      scan.proj_sem_label = self.map(scan.proj_sem_label, self.learning_map)
+      # scan.sem_label = self.map(scan.sem_label, self.learning_map)
+      # scan.proj_sem_label = self.map(scan.proj_sem_label, self.learning_map)
+      # 此处修改，直接使用原本的值即可
+      
+
 
     # make a tensor of the uncompressed data (with the max num points)
     unproj_n_points = scan.points.shape[0]
@@ -234,8 +239,9 @@ class Parser():
 
     # if I am training, get the dataset
     self.root = root
-    #改小范围用于测试
-    #train_sequences = ['00','01']
+    #改范围用于测试
+    train_sequences = ['00','01','02','04','05','06','07','10']
+    valid_sequences = ['09']
     self.train_sequences = train_sequences
     self.valid_sequences = valid_sequences
     self.test_sequences = test_sequences

@@ -1,9 +1,0 @@
-00 ../datasets/2011_10_03/2011_10_03_drive_0027_sync
-01 ../datasets/2011_10_03/2011_10_03_drive_0042_sync
-02 ../datasets/2011_10_03/2011_10_03_drive_0034_sync
-04 ../datasets/2011_09_30/2011_09_30_drive_0016_sync
-05 ../datasets/2011_09_30/2011_09_30_drive_0018_sync
-06 ../datasets/2011_09_30/2011_09_30_drive_0020_sync
-07 ../datasets/2011_09_30/2011_09_30_drive_0027_sync
-09 ../datasets/2011_09_30/2011_09_30_drive_0033_sync
-10 ../datasets/2011_09_30/2011_09_30_drive_0034_sync
