@@ -221,13 +221,15 @@ class Trainer():
 
     # 初始化 MSE 计算器
     self.evaluator = mseEval(self.device) 
-
+    if self.gpu:
+      torch.cuda.empty_cache()
     # train for n epochs
     for epoch in range(self.ARCH["train"]["max_epochs"]):
       # get info for learn rate currently
-      groups = self.optimizer.param_groups
-      for name, g in zip(self.lr_group_names, groups):
-        self.info[name] = g['lr']
+      # groups = self.optimizer.param_groups
+      # for name, g in zip(self.lr_group_names, groups):
+      #   self.info[name] = g['lr']
+
 
       # train for 1 epoch
       loss, update_mean = self.train_epoch(train_loader=self.parser.get_train_set(),
@@ -243,41 +245,41 @@ class Trainer():
 
 
        # 获取并打印 MSE
-      train_mse = self.evaluator.getMSE()
+      train_mse = self.evaluator.getMSE().cpu()
       print(f"Epoch: {epoch}, Train MSE: {train_mse}")
-      self.train_mse_history.append(train_mse) 
+      self.train_mse_history.append(train_mse).cpu()
 
       # update info
-      self.info["train_update"] = update_mean
-      self.info["train_loss"] = loss
+      self.info["train_update"] = update_mean.cpu()
+      self.info["train_loss"] = loss.cpu()
 
       if epoch % self.ARCH["train"]["report_epoch"] == 0:
         # evaluate on validation set
         print("*" * 80)
-        loss, val_mse, rand_img = self.validate(val_loader=self.parser.get_valid_set(),
-                                                 model=self.model,
-                                                 criterion=self.criterion,
-                                                 evaluator=self.evaluator,
-                                                 color_fn=self.parser.to_color,
-                                                 save_scans=self.ARCH["train"]["save_scans"])
+        loss, val_mse = self.validate(val_loader=self.parser.get_valid_set(),
+                                      model=self.model,
+                                      criterion=self.criterion,
+                                      evaluator=self.evaluator,
+                                      color_fn=self.parser.to_color,
+                                      save_scans=self.ARCH["train"]["save_scans"])
 
         # update info
-        self.info["valid_loss"] = loss
-        self.info["valid_mse"] = val_mse
-        self.val_mse_history.append(val_mse)  
+        self.info["valid_loss"] = loss.cpu()
+        self.info["valid_mse"] = val_mse.cpu()
+        self.val_mse_history.append(val_mse).cpu()  
 
         print("*" * 80)
 
-        # save to log
-        Trainer.save_to_log(logdir=self.log,
-                            logger=self.tb_logger,
-                            info=self.info,
-                            epoch=epoch,
-                            w_summary=self.ARCH["train"]["save_summary"],
-                            model=self.model_single,
-                            # img_summary=self.ARCH["train"]["save_scans"],
-                            # imgs=rand_img
-                            )
+        # # save to log
+        # Trainer.save_to_log(logdir=self.log,
+        #                     logger=self.tb_logger,
+        #                     info=self.info,
+        #                     epoch=epoch,
+        #                     w_summary=self.ARCH["train"]["save_summary"],
+        #                     model=self.model_single,
+        #                     # img_summary=self.ARCH["train"]["save_scans"],
+        #                     # imgs=rand_img
+        #                     )
 
     epochs = range(1, len(self.train_mse_history) + 1)
     plt.figure(figsize=(10, 6))
@@ -424,7 +426,7 @@ class Trainer():
           in_vol = in_vol.cuda()
           proj_mask = proj_mask.cuda()
         if self.gpu:
-          proj_labels = proj_labels.cuda(non_blocking=True).long()
+          proj_labels = proj_labels.cuda(non_blocking=True)
 
         # compute output
         output = model(in_vol, proj_mask)
@@ -435,7 +437,7 @@ class Trainer():
         # argmax = output.argmax(dim=1)
         # evaluator.addBatch(argmax, proj_labels)
         losses.update(loss.mean().item(), in_vol.size(0))
-        evaluator.addBatch(output, proj_labels)
+        evaluator.addBatch(output, proj_labels).cpu()
 
         if save_scans:
           # get the first scan in batch and project points
@@ -446,7 +448,7 @@ class Trainer():
           # gt_np = proj_labels[0].cpu().numpy()
           out = Trainer.make_log_img(depth_np, mask_np)
 
-          rand_imgs.append(out)
+          # rand_imgs.append(out)
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -457,7 +459,7 @@ class Trainer():
       # acc.update(accuracy.item(), in_vol.size(0))
       # iou.update(jaccard.item(), in_vol.size(0))
 
-      val_mse = evaluator.getMSE()
+      val_mse = evaluator.getMSE().cpu()
 
       print('Validation set:\n'
             'Time avg per batch {batch_time.avg:.3f}\n'
@@ -467,4 +469,4 @@ class Trainer():
                                       val_mse=val_mse))
 
 
-    return losses.avg, val_mse, rand_imgs
+    return losses.avg, val_mse
