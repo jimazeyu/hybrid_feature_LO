@@ -9,7 +9,7 @@ class mseEval:
         self.reset()
 
     def reset(self):
-        self.sum_squared_error = 0.0
+        self.sum_squared_error = 0
         self.total_samples = 0
 
     def addBatch(self, predictions, targets):

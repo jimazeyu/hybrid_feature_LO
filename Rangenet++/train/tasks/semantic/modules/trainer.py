@@ -42,11 +42,7 @@ class Trainer():
     self.tb_logger = Logger(self.log + "/tb")
     self.info = {"train_update": 0,
                  "train_loss": 0,
-                 "train_acc": 0,
-                 "train_iou": 0,
                  "valid_loss": 0,
-                 "valid_acc": 0,
-                 "valid_iou": 0,
                  "backbone_lr": 0,
                  "decoder_lr": 0,
                  "head_lr": 0,
@@ -184,7 +180,7 @@ class Trainer():
     return (out_img).astype(np.uint8)
 
   @staticmethod
-  def save_to_log(logdir, logger, info, epoch, w_summary=False, model=None, img_summary=False, imgs=[]):
+  def save_to_log(logdir, logger, info, epoch, w_summary=False, model=None):
     # save scalars
     for tag, value in info.items():
       logger.scalar_summary(tag, value, epoch)
@@ -198,13 +194,14 @@ class Trainer():
           logger.histo_summary(
               tag + '/grad', value.grad.data.cpu().numpy(), epoch)
 
-    if img_summary and len(imgs) > 0:
-      directory = os.path.join(logdir, "predictions")
-      if not os.path.isdir(directory):
-        os.makedirs(directory)
-      for i, img in enumerate(imgs):
-        name = os.path.join(directory, str(i) + ".png")
-        cv2.imwrite(name, img)
+    # if img_summary and len(imgs) > 0:
+    #   directory = os.path.join(logdir, "predictions")
+    #   if not os.path.isdir(directory):
+    #     os.makedirs(directory)
+    #   for i, img in enumerate(imgs):
+    #     name = os.path.join(directory, str(i) + ".png")
+    #     cv2.imwrite(name, img)
+    
 
   def train(self):
     # accuracy and IoU stuff
@@ -245,18 +242,25 @@ class Trainer():
 
 
        # 获取并打印 MSE
-      train_mse = self.evaluator.getMSE().cpu()
-      print(f"Epoch: {epoch}, Train MSE: {train_mse}")
-      self.train_mse_history.append(train_mse).cpu()
+      # train_mse = self.evaluator.getMSE()
+      # print(f"Epoch: {epoch}, Train MSE: {train_mse}")
 
       # update info
-      self.info["train_update"] = update_mean.cpu()
-      self.info["train_loss"] = loss.cpu()
+      self.info["train_update"] = update_mean
+      self.info["train_loss"] = loss
 
+      self.train_mse_history.append(loss)
+
+      # remember best iou and save checkpoint
+      print("Best  in training set so far, save model!")
+      self.model_single.save_checkpoint(self.log, suffix="_train")
+
+      
+      print(loss)
       if epoch % self.ARCH["train"]["report_epoch"] == 0:
         # evaluate on validation set
         print("*" * 80)
-        loss, val_mse = self.validate(val_loader=self.parser.get_valid_set(),
+        loss = self.validate(val_loader=self.parser.get_valid_set(),
                                       model=self.model,
                                       criterion=self.criterion,
                                       evaluator=self.evaluator,
@@ -264,21 +268,17 @@ class Trainer():
                                       save_scans=self.ARCH["train"]["save_scans"])
 
         # update info
-        self.info["valid_loss"] = loss.cpu()
-        self.info["valid_mse"] = val_mse.cpu()
-        self.val_mse_history.append(val_mse).cpu()  
+        self.info["valid_loss"] = loss
+        self.val_mse_history.append(loss)
 
         print("*" * 80)
 
-        # # save to log
         # Trainer.save_to_log(logdir=self.log,
         #                     logger=self.tb_logger,
         #                     info=self.info,
         #                     epoch=epoch,
         #                     w_summary=self.ARCH["train"]["save_summary"],
-        #                     model=self.model_single,
-        #                     # img_summary=self.ARCH["train"]["save_scans"],
-        #                     # imgs=rand_img
+        #                     model=self.model_single
         #                     )
 
     epochs = range(1, len(self.train_mse_history) + 1)
@@ -325,9 +325,13 @@ class Trainer():
       if self.gpu:
         proj_labels = proj_labels.cuda(non_blocking=True).long()
 
+      #放大标签值
+      # scaling_factor = 100.0
+
       # compute output
       output = model(in_vol, proj_mask)
       proj_labels = proj_labels.unsqueeze(1).float()  # 增加一个维度以匹配通道数
+      # proj_labels = proj_labels * scaling_factor  # 放大标签值
       loss = self.criterion(output, proj_labels)  # 直接使用 MSE 损失
 
       # compute gradient and do SGD step
@@ -338,13 +342,6 @@ class Trainer():
       else:
         loss.backward()
       optimizer.step()
-
-      # measure accuracy and record loss
-      evaluator.reset()
-      losses.update(loss.item(), in_vol.size(0))
-      evaluator.addBatch(output, proj_labels)
-      # 在一个 epoch 结束后或在需要计算当前 MSE 的时候
-      train_mse = evaluator.getMSE()
 
       # # measure accuracy and record loss
       # loss = loss.mean()
@@ -385,9 +382,9 @@ class Trainer():
         argmax = output.argmax(dim=1)
         # pred_np = argmax[0].cpu().numpy()
         # gt_np = proj_labels[0].cpu().numpy()
-        out = Trainer.make_log_img(depth_np, mask_np)
-        cv2.imshow("sample_training", out)
-        cv2.waitKey(1)
+        # out = Trainer.make_log_img(depth_np, mask_np)
+        # cv2.imshow("sample_training", out)
+        # cv2.waitKey(1)
 
       if i % self.ARCH["train"]["report_batch"] == 0:
         print('Lr: {lr:.3e} | '
@@ -398,9 +395,9 @@ class Trainer():
               'Loss {loss.val:.4f} ({loss.avg:.4f}) | '.format(
                   epoch, i, len(train_loader), batch_time=batch_time,
                   data_time=data_time, loss=losses, lr=lr,
-                  umean=update_mean, ustd=update_std,
-                  train_mse=train_mse))
-
+                  umean=update_mean, ustd=update_std
+                 ))
+      
       # step scheduler
       scheduler.step()
 
@@ -437,7 +434,7 @@ class Trainer():
         # argmax = output.argmax(dim=1)
         # evaluator.addBatch(argmax, proj_labels)
         losses.update(loss.mean().item(), in_vol.size(0))
-        evaluator.addBatch(output, proj_labels).cpu()
+        evaluator.addBatch(output, proj_labels)
 
         if save_scans:
           # get the first scan in batch and project points
@@ -446,7 +443,7 @@ class Trainer():
           argmax = output.argmax(dim=1)
           # pred_np = argmax[0].cpu().numpy()
           # gt_np = proj_labels[0].cpu().numpy()
-          out = Trainer.make_log_img(depth_np, mask_np)
+          # out = Trainer.make_log_img(depth_np, mask_np)
 
           # rand_imgs.append(out)
 
@@ -459,14 +456,11 @@ class Trainer():
       # acc.update(accuracy.item(), in_vol.size(0))
       # iou.update(jaccard.item(), in_vol.size(0))
 
-      val_mse = evaluator.getMSE().cpu()
+      val_mse = evaluator.getMSE()
 
       print('Validation set:\n'
             'Time avg per batch {batch_time.avg:.3f}\n'
             'Loss avg {loss.avg:.4f}\n'
-            'MSE {val_mse:.4f}'.format(batch_time=batch_time,
-                                      loss=losses,
-                                      val_mse=val_mse))
+            .format(batch_time=batch_time, loss=losses))
 
-
-    return losses.avg, val_mse
+    return losses.avg

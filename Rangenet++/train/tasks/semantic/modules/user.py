@@ -148,7 +148,7 @@ class User():
         # save scan
         # get the first scan in batch and project scan
         pred_np = proj_output.cpu().numpy()
-        pred_np = pred_np.reshape((-1)).astype(np.int32)
+        pred_np = pred_np.reshape((-1)).astype(np.float32)
 
         # map to original label
         pred_np = to_orig_fn(pred_np)
